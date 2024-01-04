@@ -52,6 +52,6 @@ func main() {
 	}
 
 	for city, record := range temps {
-		fmt.Printf("%s=%.2f/%.2f/%.2f\n", city, record.min, record.sum/record.count, record.max)
+		fmt.Printf("%s=%.1f/%.1f/%.1f\n", city, record.min, record.sum/record.count, record.max)
 	}
 }

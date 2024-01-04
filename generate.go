@@ -453,11 +453,11 @@ func main() {
 	}
 
 	for i := int64(0); i < size; i++ {
-		if i > 0 && i%50_000 == 0 {
+		if i > 0 && i%50_000_000 == 0 {
 			fmt.Printf("Wrote %d measurements in %d ms\n", i, time.Now().Sub(start).Milliseconds())
 		}
 		s := stations[rand.Intn(len(stations))]
-		_, err := f.WriteString(fmt.Sprintf("%s;%.2f\n", s.id, s.measurement()))
+		_, err := f.WriteString(fmt.Sprintf("%s;%.1f\n", s.id, s.measurement()))
 		if err != nil {
 			panic(err)
 		}
