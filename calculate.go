@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -29,6 +30,7 @@ func main() {
 	}()
 
 	temps := make(map[string]*record)
+	var cities []string
 
 	s := bufio.NewScanner(f)
 	for s.Scan() {
@@ -39,6 +41,7 @@ func main() {
 				min: math.MaxFloat64,
 				max: math.SmallestNonzeroFloat64,
 			}
+			cities = append(cities, cityAndTemp[0])
 		}
 		i, err := strconv.ParseFloat(cityAndTemp[1], 10)
 		if err != nil {
@@ -51,7 +54,9 @@ func main() {
 		r.count = r.count + 1
 	}
 
-	for city, record := range temps {
+	slices.Sort(cities)
+	for _, city := range cities {
+		record := temps[city]
 		fmt.Printf("%s=%.1f/%.1f/%.1f\n", city, record.min, record.sum/record.count, record.max)
 	}
 }
