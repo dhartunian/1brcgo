@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"math"
 	"math/rand"
@@ -14,8 +15,8 @@ type WeatherStation struct {
 	meanTemp float64
 }
 
-func (w WeatherStation) measurement() float64 {
-	return math.Round(((rand.NormFloat64()*10 + w.meanTemp) * 10.0) / 10.0)
+func (w WeatherStation) measurement(rng *rand.Rand) float64 {
+	return math.Round(((rng.NormFloat64()*10 + w.meanTemp) * 10.0) / 10.0)
 }
 
 var stations = []WeatherStation{
@@ -452,14 +453,19 @@ func main() {
 		panic(err)
 	}
 
+	w := bufio.NewWriterSize(f, 512<<10 /* 512 KB */)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := int64(0); i < size; i++ {
 		if i > 0 && i%50_000_000 == 0 {
 			fmt.Printf("Wrote %d measurements in %d ms\n", i, time.Now().Sub(start).Milliseconds())
 		}
-		s := stations[rand.Intn(len(stations))]
-		_, err := f.WriteString(fmt.Sprintf("%s;%.1f\n", s.id, s.measurement()))
+		s := stations[rng.Intn(len(stations))]
+		_, err := fmt.Fprintf(w, "%s;%.1f\n", s.id, s.measurement(rng))
 		if err != nil {
 			panic(err)
 		}
+	}
+	if err = w.Flush(); err != nil {
+		panic(err)
 	}
 }
