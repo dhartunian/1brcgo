@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -16,7 +15,7 @@ type WeatherStation struct {
 }
 
 func (w WeatherStation) measurement(rng *rand.Rand) float64 {
-	return math.Round(((rng.NormFloat64()*10 + w.meanTemp) * 10.0) / 10.0)
+	return rng.NormFloat64()*10 + w.meanTemp
 }
 
 var stations = []WeatherStation{
