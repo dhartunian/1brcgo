@@ -60,7 +60,7 @@ will be averaged for a final result.
 
 # Leaderboard
 
-| Rank | Submission                 | Time |
-| ---: | -------------------------- | ---: |
-|    1 | [baseline.go](baseline.go) |   -- |
+| Rank | Submission                 | Time (seconds) |
+| ---: | -------------------------- |---------------:|
+|    1 | [baseline.go](baseline.go) |         151.09 |
 
