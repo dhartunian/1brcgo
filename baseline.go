@@ -39,7 +39,7 @@ func main() {
 		if temps[cityAndTemp[0]] == nil {
 			temps[cityAndTemp[0]] = &record{
 				min: math.MaxFloat64,
-				max: math.SmallestNonzeroFloat64,
+				max: -math.MaxFloat64,
 			}
 			cities = append(cities, cityAndTemp[0])
 		}
