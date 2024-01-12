@@ -60,7 +60,9 @@ will be averaged for a final result.
 
 # Leaderboard
 
-| Rank | Submission                 | Time (seconds) |
-| ---: | -------------------------- |---------------:|
-|    1 | [baseline.go](baseline.go) |         151.09 |
-
+| Rank | Submission                                                    | Time (seconds) |
+| ---: |---------------------------------------------------------------|---------------:|
+|    1 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/6) |          2.248 |
+|    2 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)    |          3.208 |
+|    3 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)       |          3.753 |
+|    4 | [baseline.go](baseline.go)                                    |         151.09 |
