@@ -61,8 +61,9 @@ will be averaged for a final result.
 # Leaderboard
 
 | Rank | Submission                                                    | Time (seconds) |
-| ---: |---------------------------------------------------------------|---------------:|
-|    1 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/6) |          2.248 |
-|    2 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)    |          3.208 |
-|    3 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)       |          3.619 |
+|-----:|---------------------------------------------------------------|---------------:|
+|    1 | [jason](https://github.com/dhartunian/1brcgo/pull/11)         |          2.091 |
+|    2 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/6) |          2.248 |
+|    3 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)    |          3.208 |
+|    4 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)       |          3.525 |
 |    4 | [baseline.go](baseline.go)                                    |         151.09 |
