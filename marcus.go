@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"runtime"
@@ -11,6 +10,7 @@ import (
 	"runtime/pprof"
 	"slices"
 	"sync"
+	"syscall"
 )
 
 const (
@@ -72,20 +72,33 @@ func Run() {
 	if err != nil {
 		panic(err)
 	}
-	size := info.Size()
+	size := int(info.Size())
 	chunkSize := size / numGoroutines
+
+	f, err := os.Open(inputFile)
+	if err != nil {
+		panic(err)
+	}
+	// mmap the file.
+	data, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		panic(err)
+	}
 
 	var m0, m1, m2, m3, m4, m5, m6, m7, m8, m9 *SummaryMap
 	var wg sync.WaitGroup
 	for i := 0; i < numGoroutines; i++ {
-		start := int64(i) * chunkSize
-		end := int64(i+1) * chunkSize
+		start := i * chunkSize
+		end := (i + 1) * chunkSize
+		if i == numGoroutines-1 {
+			end = len(data) - 1
+		}
 
 		wg.Add(1)
-		go func(i int, start, end int64) {
+		go func(g int, start, end int) {
 			// Allocate a summary map.
 			var m SummaryMap
-			switch i {
+			switch g {
 			case 0:
 				m0 = &m
 			case 1:
@@ -108,36 +121,10 @@ func Run() {
 				m9 = &m
 			}
 
-			// Open a new handle to the file. We don't bother closing it.
-			reader, err := os.Open(inputFile)
-			if err != nil {
-				panic(err)
-			}
-			if _, err = reader.Seek(start, 0); err != nil {
-				panic(err)
-			}
+			firstScanner := g == 0
+			lastScanner := g == numGoroutines-1
+			Scan(&m, data, start, end, firstScanner, lastScanner)
 
-			// Scan the records.
-			var s Scanner
-			s.Init(reader, make([]byte, 5*1024*1024 /* 5MB */))
-			if start != 0 {
-				// Skip the first line unless this is the goroutine reading from
-				// the beginning. The previous goroutine will scan the skipped
-				// line.
-				s.SkipFirstLine()
-			}
-			bytesToRead := int(end - start)
-			for city, temp, ok := s.Scan(); ok; city, temp, ok = s.Scan() {
-				t := ParseTemp(temp)
-				sum := m.Lookup(city)
-				sum.Add(t)
-				// Scan just past the number of bytes to read because the
-				// goroutine reading from the next section will skip the first
-				// line it reads.
-				if s.TotalBytesScanned() > bytesToRead {
-					break
-				}
-			}
 			wg.Done()
 		}(i, start, end)
 	}
@@ -190,6 +177,58 @@ func Run() {
 	}
 	if err := w.Flush(); err != nil {
 		panic(err)
+	}
+}
+
+// Scan scans the data from start until ~end, adding records to the SummaryMap.
+func Scan(m *SummaryMap, data []byte, start, end int, firstScanner, lastScanner bool) {
+	head := start
+	if !firstScanner {
+		// Skip the first line unless this is the goroutine reading from
+		// the beginning. The previous goroutine will scan the skipped
+		// line.
+		for ; head < end; head++ {
+			if data[head] == '\n' {
+				head++
+				break
+			}
+		}
+	}
+	scanPast := end
+	if lastScanner {
+		// We can't scan past the end of the file.
+		scanPast -= 2
+	}
+	for {
+		var city []byte
+		var t []byte
+		for i := head; i < len(data); i++ {
+			if data[i] == ';' {
+				city = data[head:i]
+				head = i + 1
+				break
+			}
+		}
+		if city == nil {
+			break
+		}
+		// The temperature is at least 3 bytes, e.g., "0.0", so skip
+		// ahead 4 bytes to start looking for the newline.
+		for i := head + 3; i < len(data); i++ {
+			if data[i] == '\n' {
+				t = data[head:i]
+				head = i + 1
+				break
+			}
+		}
+
+		temp := ParseTemp(t)
+		sum := m.Lookup(city)
+		sum.Add(temp)
+
+		if head > scanPast {
+			break
+		}
 	}
 }
 
@@ -406,121 +445,6 @@ func (r Summary) Max() float64 {
 // Avg returns the mean temperature as float64.
 func (r Summary) Avg() float64 {
 	return r.sum.AsFloat() / float64(r.count)
-}
-
-// Scanner is copied from bufio.Scanner, with bunch of not-so-necessary
-// functionality ripped out.
-type Scanner struct {
-	r                 io.Reader // The reader provided by the client.
-	buf               []byte    // Buffer used as argument to split.
-	start             int       // First non-processed byte in buf.
-	end               int       // End of data in buf.
-	totalBytesScanned int
-	firstLineRead     bool
-}
-
-// Init initializes the scanner with the given buffer.
-func (s *Scanner) Init(r io.Reader, buf []byte) {
-	s.r = r
-	s.buf = buf
-}
-
-// SkipFirstLine scans until the first newline in the io.Reader.
-func (s *Scanner) SkipFirstLine() {
-	if s.firstLineRead {
-		panic("cannot call SkipFirstLine multiple times not after Scan")
-	}
-	s.firstLineRead = true
-	// Perform the first read.
-	n, err := s.r.Read(s.buf)
-	s.end += n
-	if err != nil {
-		panic(err)
-	}
-	advance := scanLine(s.buf)
-	if !s.advance(advance) {
-		panic("could not advance")
-	}
-}
-
-// Scan scans the io.Reader for the next line and returns it.
-func (s *Scanner) Scan() (city []byte, temp []byte, ok bool) {
-	s.firstLineRead = true
-	// Loop until we have a full line.
-	for {
-		// See if we can get a line with what we already have.
-		if s.end > s.start {
-			var advance int
-			advance, city, temp = scanCityAndTemp(s.buf[s.start:s.end])
-			if !s.advance(advance) {
-				return nil, nil, false
-			}
-			if city != nil {
-				s.totalBytesScanned += advance
-				return city, temp, true
-			}
-		}
-		// Must read more data. First, shift data to the beginning of the
-		// buffer.
-		if s.start > 0 {
-			copy(s.buf, s.buf[s.start:s.end])
-			s.end -= s.start
-			s.start = 0
-		}
-		// Read some input.
-		n, err := s.r.Read(s.buf[s.end:len(s.buf)])
-		s.end += n
-		if err != nil {
-			return nil, nil, false
-		}
-	}
-}
-
-// TotalBytesScanned returns the total number of bytes scanned from all Scan
-// calls.
-func (s *Scanner) TotalBytesScanned() int {
-	return s.totalBytesScanned
-}
-
-func (s *Scanner) advance(n int) bool {
-	if n < 0 {
-		return false
-	}
-	if n > s.end-s.start {
-		return false
-	}
-	s.start += n
-	return true
-}
-
-func scanLine(data []byte) (advance int) {
-	for i := range data {
-		if data[i] == '\n' {
-			return i + 1
-		}
-	}
-	return 0
-}
-
-func scanCityAndTemp(data []byte) (advance int, city []byte, temp []byte) {
-	i := 0
-	for ; i < len(data); i++ {
-		if data[i] == ';' {
-			city = data[:i]
-			break
-		}
-	}
-	cityEnd := i
-	// The temperature is at least 3 bytes, e.g., "0.0", so skip ahead 4 bytes
-	// to start looking for the newline.
-	i += 4
-	for ; i < len(data); i++ {
-		if data[i] == '\n' {
-			temp = data[cityEnd+1 : i]
-			return i + 1, city, temp
-		}
-	}
-	return 0, nil, nil
 }
 
 // /////////////////////////////////////////////////////////
