@@ -60,11 +60,14 @@ will be averaged for a final result.
 
 # Leaderboard
 
-| Rank | Submission                                                    | Time (seconds) |
-|-----:|---------------------------------------------------------------|---------------:|
-|    1 | [jason](https://github.com/dhartunian/1brcgo/pull/11)         |          2.091 |
-|    2 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/6) |          2.248 |
-|    3 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)    |          3.208 |
-|    4 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)       |          3.525 |
-|    4 | [arjunmahishi](https://github.com/dhartunian/1brcgo/pull/10)  |          6.882 |
-|    4 | [baseline.go](baseline.go)                                    |         151.09 |
+| Rank | Submission                                                         | Time (seconds) |
+|-----:|--------------------------------------------------------------------|---------------:|
+|    1 | [pavel](https://github.com/dhartunian/1brcgo/pull/15)              |          1.771 |
+|    2 | [nvanbenschoten (2)](https://github.com/dhartunian/1brcgo/pull/14) |          1.814 |
+|    3 | [jason](https://github.com/dhartunian/1brcgo/pull/11)              |          2.091 |
+|    4 | [jason (2)](https://github.com/dhartunian/1brcgo/pull/16)          |          2.162 |
+|    5 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/6)      |          2.248 |
+|    6 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)            |          3.136 |
+|    7 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)         |          3.147 |
+|    8 | [arjunmahishi](https://github.com/dhartunian/1brcgo/pull/10)       |          5.029 |
+|    - | [baseline.go](baseline.go)                                         |         151.09 |
