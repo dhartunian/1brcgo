@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"unsafe"
 )
 
 const (
@@ -33,6 +34,7 @@ func main() {
 	if runTestsAndAssertions {
 		// Run tests.
 		TestParseTemp()
+		TestHasSemiColon()
 	}
 
 	if profile {
@@ -201,8 +203,26 @@ func Scan(m *SummaryMap, data []byte, start, end int, firstScanner, lastScanner 
 	}
 	for {
 		var city []byte
-		var t []byte
-		for i := head; i < len(data); i++ {
+		if head < 0 {
+			return
+		}
+
+		i := head
+		// Quick check for semicolon, 4 bytes at a time.
+		// if i < len(data) {
+		// 	u := *(*uint64)(unsafe.Pointer(&data[i]))
+		// 	if !HasSemiColon(u) {
+		// 		i += 8
+		// 	}
+		// }
+		if i < len(data) {
+			u := *(*uint32)(unsafe.Pointer(&data[i]))
+			b := u ^ 0x3B3B3B3B
+			if (b-0x01010101)&(^b&0x80808080) == 0 {
+				i += 4
+			}
+		}
+		for ; i < len(data); i++ {
 			if data[i] == ';' {
 				city = data[head:i]
 				head = i + 1
@@ -212,17 +232,9 @@ func Scan(m *SummaryMap, data []byte, start, end int, firstScanner, lastScanner 
 		if city == nil {
 			break
 		}
-		// The temperature is at least 3 bytes, e.g., "0.0", so skip
-		// ahead 4 bytes to start looking for the newline.
-		for i := head + 3; i < len(data); i++ {
-			if data[i] == '\n' {
-				t = data[head:i]
-				head = i + 1
-				break
-			}
-		}
 
-		temp := ParseTemp(t)
+		temp, adv := ParseTemp(data[head:])
+		head += adv
 		sum := m.Lookup(city)
 		sum.Add(temp)
 
@@ -232,11 +244,41 @@ func Scan(m *SummaryMap, data []byte, start, end int, firstScanner, lastScanner 
 	}
 }
 
-// ParseTemp parses a byte slice representing a temperature.
-func ParseTemp(t []byte) Temp {
+const (
+	shift1 = 8 * 1
+	shift2 = 8 * 2
+	shift3 = 8 * 3
+	shift4 = 8 * 4
+
+	charMask0 = int64(255)
+	charMask1 = int64(255) << shift1
+	charMask2 = int64(255) << shift2
+	charMask3 = int64(255) << shift3
+	charMask4 = int64(255) << shift4
+
+	dot1 = int64('.') << 8
+	dot2 = int64('.') << 16
+
+	semiColonTest = 0x3B3B3B3B3B3B3B3B
+)
+
+func HasSemiColon(u uint64) bool {
+	// See "determine if a word has a byte equal to n", from "Bit Twiddling
+	// Hacks",
+	// https://graphics.stanford.edu/~seander/bithacks.html.
+	b := u ^ semiColonTest
+	return (b-0x0101010101010101)&(^b&0x8080808080808080) != 0
+}
+
+// func hasZero(i int64) bool {
+// 	// ((i + 0x7efefeff) ^ ~i) & 0x81010100;
+// 	return (((i) - 0x0101010101010101) & ^i & 0x80808080808080) == 1
+// }
+
+func ParseTemp(b []byte) (_ Temp, advance int) {
 	// Gather the key and fetch the corresponding record. We can do this without
-	// scanning the line because there are only four possible positions for
-	// the semicolon. The valid formats for the line are:
+	// scanning the line because there are only four possible sequences for
+	// the temperature. The valid formats are:
 	//
 	//     0.0
 	//    00.0
@@ -245,24 +287,29 @@ func ParseTemp(t []byte) Temp {
 	//
 	// We use the limited locations of semicolons and minus characters to avoid
 	// conditional expressions and loops.
-	l := len(t)
-	switch l {
-	case 3:
-		tenths := int(t[2] - '0')
-		ones := int(t[0]-'0') * 10
-		return Temp(ones + tenths)
-	case 4:
-		tenths := int(t[3] - '0')
-		ones := int(t[1]-'0') * 10
-		tens := int(t[0]-'0') * 100
+	i := *(*int64)(unsafe.Pointer(&b[0]))
+	switch {
+	case (i & charMask1) == dot1:
+		// Case: "0.0".
+		ones := (i&charMask0 - '0') * 10
+		tenths := i&charMask2>>shift2 - '0'
+		// Advance past the newline, which is the fourth character.
+		return Temp(ones + tenths), 4
+
+	case (i & charMask2) == dot2:
+		// Case: "00.0" and "-0.0".
+		v0 := i & charMask0
+		tens := (v0 - '0') * 100
+		ones := (i&charMask1>>shift1 - '0') * 10
+		tenths := i&charMask3>>shift3 - '0'
 
 		// neg is 1 if the first character is the minus charater, and 0
 		// otherwise.
 		//
 		// NOTE: The Go compiler eliminates jumps when using this form of
 		// conditional.
-		var neg int
-		if t[0] == '-' {
+		var neg int64
+		if v0 == '-' {
 			neg = 1
 		}
 
@@ -283,20 +330,18 @@ func ParseTemp(t []byte) Temp {
 		// https://graphics.stanford.edu/~seander/bithacks.html.
 		temp = (temp ^ -neg) + neg
 
-		return Temp(temp)
-	case 5:
-		tenths := int(t[4] - '0')
-		ones := int(t[2]-'0') * 10
-		tens := int(t[1]-'0') * 100
-		temp := tens + ones + tenths
-		temp *= -1
-		return Temp(temp)
+		// Advance past the newline, which is the fifth character.
+		return Temp(temp), 5
 	default:
-		// Impossible.
-		if runTestsAndAssertions {
-			panic(fmt.Sprintf("unexpected temperature slice length %d", l))
-		}
-		return Temp(0)
+		// Case: "-00.0".
+		tens := (i&charMask1>>shift1 - '0') * 100
+		ones := (i&charMask2>>shift2 - '0') * 10
+		tenths := i&charMask4>>shift4 - '0'
+
+		t := tens + ones + tenths
+		t *= -1
+		// Advance past the newline, which is the sixth character.
+		return Temp(t), 6
 	}
 }
 
@@ -453,31 +498,61 @@ func (r Summary) Avg() float64 {
 
 func TestParseTemp() {
 	type testCase struct {
-		input        []byte
-		expectedTemp float64
+		input           []byte
+		expectedTemp    float64
+		expectedAdvance int
 	}
 	testCases := []testCase{
-		{[]byte("0.0"), 0},
-		{[]byte("0.1"), 0.1},
-		{[]byte("0.5"), 0.5},
-		{[]byte("0.9"), 0.9},
-		{[]byte("1.2"), 1.2},
-		{[]byte("5.5"), 5.5},
-		{[]byte("9.9"), 9.9},
-		{[]byte("-1.2"), -1.2},
-		{[]byte("-5.5"), -5.5},
-		{[]byte("-9.9"), -9.9},
-		{[]byte("13.2"), 13.2},
-		{[]byte("56.5"), 56.5},
-		{[]byte("98.9"), 98.9},
-		{[]byte("-13.2"), -13.2},
-		{[]byte("-56.5"), -56.5},
-		{[]byte("-98.9"), -98.9},
+		{[]byte("0.0"), 0, 4},
+		{[]byte("0.1"), 0.1, 4},
+		{[]byte("0.5"), 0.5, 4},
+		{[]byte("0.9"), 0.9, 4},
+		{[]byte("1.2"), 1.2, 4},
+		{[]byte("5.5"), 5.5, 4},
+		{[]byte("9.9"), 9.9, 4},
+		{[]byte("-1.2"), -1.2, 5},
+		{[]byte("-5.5"), -5.5, 5},
+		{[]byte("-9.9"), -9.9, 5},
+		{[]byte("13.2"), 13.2, 5},
+		{[]byte("56.5"), 56.5, 5},
+		{[]byte("98.9"), 98.9, 5},
+		{[]byte("-13.2"), -13.2, 6},
+		{[]byte("-56.5"), -56.5, 6},
+		{[]byte("-98.9"), -98.9, 6},
 	}
 	for _, tc := range testCases {
-		temp := ParseTemp(tc.input)
+		temp, adv := ParseTemp(tc.input)
 		if temp.AsFloat() != tc.expectedTemp {
 			panic(fmt.Sprintf("expected temp %d, got %d", tc.expectedTemp, temp.AsFloat()))
+		}
+		if adv != tc.expectedAdvance {
+			panic(fmt.Sprintf("expected advance %d, got %d", tc.expectedAdvance, adv))
+		}
+	}
+}
+
+func TestHasSemiColon() {
+	type testCase struct {
+		input    []byte
+		expected bool
+	}
+	testCases := []testCase{
+		{[]byte("abcdefgh"), false},
+		{[]byte(";bcdefgh"), true},
+		{[]byte("a;cdefgh"), true},
+		{[]byte("ab;defgh"), true},
+		{[]byte("abc;efgh"), true},
+		{[]byte("abcd;fgh"), true},
+		{[]byte("abcde;gh"), true},
+		{[]byte("abcdef;h"), true},
+		{[]byte("abcdefg;"), true},
+		{[]byte("abcdefgh;"), false},
+	}
+	for _, tc := range testCases {
+		i := *(*uint64)(unsafe.Pointer(&tc.input[0]))
+		r := HasSemiColon(i)
+		if r != tc.expected {
+			panic(fmt.Sprintf("%q: expected %d, got %d", tc.input, tc.expected, r))
 		}
 	}
 }
