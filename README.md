@@ -67,7 +67,7 @@ will be averaged for a final result.
 |    3 | [jason](https://github.com/dhartunian/1brcgo/pull/11)              |          2.091 |
 |    4 | [jason (2)](https://github.com/dhartunian/1brcgo/pull/16)          |          2.162 |
 |    5 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/6)      |          2.248 |
-|    6 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)            |          3.136 |
+|    6 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)            |          2.491 |
 |    7 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)         |          3.147 |
 |    8 | [arjunmahishi](https://github.com/dhartunian/1brcgo/pull/10)       |          5.029 |
 |    - | [baseline.go](baseline.go)                                         |         151.09 |
