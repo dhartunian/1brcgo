@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"math"
+	"math/bits"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -34,7 +35,7 @@ func main() {
 	if runTestsAndAssertions {
 		// Run tests.
 		TestParseTemp()
-		TestHasSemiColon()
+		TestSemiColonPosition()
 	}
 
 	if profile {
@@ -74,7 +75,7 @@ func Run() {
 	if err != nil {
 		panic(err)
 	}
-	size := int(info.Size())
+	size := uint64(info.Size())
 	chunkSize := size / numGoroutines
 
 	f, err := os.Open(inputFile)
@@ -82,7 +83,7 @@ func Run() {
 		panic(err)
 	}
 	// mmap the file.
-	data, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ, syscall.MAP_SHARED)
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		panic(err)
 	}
@@ -90,14 +91,14 @@ func Run() {
 	var m0, m1, m2, m3, m4, m5, m6, m7, m8, m9 *SummaryMap
 	var wg sync.WaitGroup
 	for i := 0; i < numGoroutines; i++ {
-		start := i * chunkSize
-		end := (i + 1) * chunkSize
+		start := uint64(i) * chunkSize
+		end := uint64(i+1) * chunkSize
 		if i == numGoroutines-1 {
-			end = len(data) - 1
+			end = uint64(len(data)) - 1
 		}
 
 		wg.Add(1)
-		go func(g int, start, end int) {
+		go func(g int, start, end uint64) {
 			// Allocate a summary map.
 			var m SummaryMap
 			switch g {
@@ -183,7 +184,7 @@ func Run() {
 }
 
 // Scan scans the data from start until ~end, adding records to the SummaryMap.
-func Scan(m *SummaryMap, data []byte, start, end int, firstScanner, lastScanner bool) {
+func Scan(m *SummaryMap, data []byte, start, end uint64, firstScanner, lastScanner bool) {
 	head := start
 	if !firstScanner {
 		// Skip the first line unless this is the goroutine reading from
@@ -208,24 +209,12 @@ func Scan(m *SummaryMap, data []byte, start, end int, firstScanner, lastScanner 
 		}
 
 		i := head
-		// Quick check for semicolon, 4 bytes at a time.
-		// if i < len(data) {
-		// 	u := *(*uint64)(unsafe.Pointer(&data[i]))
-		// 	if !HasSemiColon(u) {
-		// 		i += 8
-		// 	}
-		// }
-		if i < len(data) {
-			u := *(*uint32)(unsafe.Pointer(&data[i]))
-			b := u ^ 0x3B3B3B3B
-			if (b-0x01010101)&(^b&0x80808080) == 0 {
-				i += 4
-			}
-		}
-		for ; i < len(data); i++ {
-			if data[i] == ';' {
-				city = data[head:i]
-				head = i + 1
+		for ; i < uint64(len(data)); i += 8 {
+			u := *(*uint64)(unsafe.Pointer(&data[i]))
+			p := SemiColonPosition(u)
+			if p >= 0 {
+				city = data[head : i+uint64(p)]
+				head = i + uint64(p) + 1
 				break
 			}
 		}
@@ -262,20 +251,26 @@ const (
 	semiColonTest = 0x3B3B3B3B3B3B3B3B
 )
 
-func HasSemiColon(u uint64) bool {
+// SemiColonPosition returns the position of the byte within u that represents a
+// semi-colon character in ASCII. If such a byte is not present, it returns -1.
+func SemiColonPosition(u uint64) int {
 	// See "determine if a word has a byte equal to n", from "Bit Twiddling
 	// Hacks",
 	// https://graphics.stanford.edu/~seander/bithacks.html.
 	b := u ^ semiColonTest
-	return (b-0x0101010101010101)&(^b&0x8080808080808080) != 0
+	b = (b - 0x0101010101010101) & (^b & 0x8080808080808080)
+	if b == 0 {
+		return -1
+	}
+	// The first bit of each byte in b that matches a semi-colon character will
+	// be set. So we can count the trailing zeros (on a little-endian machine)
+	// to find the position of the first semi-colon.
+	z := bits.TrailingZeros64(b)
+	// Divide by 8.
+	return z >> 3
 }
 
-// func hasZero(i int64) bool {
-// 	// ((i + 0x7efefeff) ^ ~i) & 0x81010100;
-// 	return (((i) - 0x0101010101010101) & ^i & 0x80808080808080) == 1
-// }
-
-func ParseTemp(b []byte) (_ Temp, advance int) {
+func ParseTemp(b []byte) (_ Temp, advance uint64) {
 	// Gather the key and fetch the corresponding record. We can do this without
 	// scanning the line because there are only four possible sequences for
 	// the temperature. The valid formats are:
@@ -500,7 +495,7 @@ func TestParseTemp() {
 	type testCase struct {
 		input           []byte
 		expectedTemp    float64
-		expectedAdvance int
+		expectedAdvance uint64
 	}
 	testCases := []testCase{
 		{[]byte("0.0"), 0, 4},
@@ -531,26 +526,29 @@ func TestParseTemp() {
 	}
 }
 
-func TestHasSemiColon() {
+func TestSemiColonPosition() {
 	type testCase struct {
 		input    []byte
-		expected bool
+		expected int
 	}
 	testCases := []testCase{
-		{[]byte("abcdefgh"), false},
-		{[]byte(";bcdefgh"), true},
-		{[]byte("a;cdefgh"), true},
-		{[]byte("ab;defgh"), true},
-		{[]byte("abc;efgh"), true},
-		{[]byte("abcd;fgh"), true},
-		{[]byte("abcde;gh"), true},
-		{[]byte("abcdef;h"), true},
-		{[]byte("abcdefg;"), true},
-		{[]byte("abcdefgh;"), false},
+		{[]byte("abcdefgh"), -1},
+		{[]byte(";bcdefgh"), 0},
+		{[]byte("a;cdefgh"), 1},
+		{[]byte("a;cd;fgh"), 1},
+		{[]byte("a;;;;;;;"), 1},
+		{[]byte("ab;defgh"), 2},
+		{[]byte("abc;efgh"), 3},
+		{[]byte("abcd;fgh"), 4},
+		{[]byte("abcde;gh"), 5},
+		{[]byte("abcdef;h"), 6},
+		{[]byte("abcdef;;"), 6},
+		{[]byte("abcdefg;"), 7},
+		{[]byte("abcdefgh;"), -1},
 	}
 	for _, tc := range testCases {
 		i := *(*uint64)(unsafe.Pointer(&tc.input[0]))
-		r := HasSemiColon(i)
+		r := SemiColonPosition(i)
 		if r != tc.expected {
 			panic(fmt.Sprintf("%q: expected %d, got %d", tc.input, tc.expected, r))
 		}
