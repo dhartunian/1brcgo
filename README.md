@@ -60,14 +60,13 @@ will be averaged for a final result.
 
 # Leaderboard
 
-| Rank | Submission                                                         | Time (seconds) |
-|-----:|--------------------------------------------------------------------|---------------:|
-|    1 | [pavel](https://github.com/dhartunian/1brcgo/pull/15)              |          1.771 |
-|    2 | [nvanbenschoten (2)](https://github.com/dhartunian/1brcgo/pull/14) |          1.814 |
-|    3 | [jason](https://github.com/dhartunian/1brcgo/pull/11)              |          2.091 |
-|    4 | [jason (2)](https://github.com/dhartunian/1brcgo/pull/16)          |          2.162 |
-|    5 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/6)      |          2.248 |
-|    6 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)            |          2.491 |
-|    7 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)         |          3.147 |
-|    8 | [arjunmahishi](https://github.com/dhartunian/1brcgo/pull/10)       |          3.467 |
-|    - | [baseline.go](baseline.go)                                         |         151.09 |
+| Rank | Submission                                                     | Time (seconds) |
+|-----:|----------------------------------------------------------------|---------------:|
+|    1 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/18) |          1.689 |
+|    2 | [pavel](https://github.com/dhartunian/1brcgo/pull/15)          |          1.771 |
+|    2 | [jason](https://github.com/dhartunian/1brcgo/pull/19)          |          1.777 |
+|    4 | [radu](https://github.com/dhartunian/1brcgo/pull/20)           |          2.165 |
+|    5 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)        |          2.414 |
+|    6 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)     |          3.147 |
+|    7 | [arjunmahishi](https://github.com/dhartunian/1brcgo/pull/10)   |          3.467 |
+|    - | [baseline.go](baseline.go)                                     |         151.09 |
