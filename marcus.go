@@ -170,7 +170,7 @@ func Run() {
 		}
 		// Build a shortKey for the city to aid the lookups.
 		u := *(*uint64)(unsafe.Pointer(unsafe.StringData(city)))
-		shortKey := TruncateKey(u, len(city))
+		shortKey := MakeShortKey(u, len(city))
 		// Merge all summaries for this city together.
 		for i := range maps {
 			if sub := maps[i].LookupExisting(shortKey, city); sub != nil {
@@ -206,39 +206,39 @@ func Scan(m *SummaryMap, data []byte, start, end uint64, firstScanner, lastScann
 		// We can't scan past the end of the file.
 		scanPast -= 2
 	}
+	var skip uint64
 	for {
-		if head < 0 {
-			return
-		}
-
 		var city []byte
-		var firstBytes uint64
-		var u uint64
-		for i := head; i < uint64(len(data)); i += 8 {
-			u = *(*uint64)(unsafe.Pointer(&data[i]))
-			if i == head {
-				firstBytes = u
-			}
-			// Look for the first semicolon.
-			p := SemiColonPosition(u)
-			if p >= 0 {
-				// A semicolon was found, collect all bytes before it.
-				city = data[head : i+uint64(p)]
-				// Advance head.
-				head = i + uint64(p) + 1
-				break
+		firstBytes := *(*uint64)(unsafe.Pointer(&data[head+skip]))
+		// Look for a semicolon in the first 8 bytes.
+		if p := SemiColonPosition(firstBytes); p >= 0 {
+			city = data[head : head+skip+uint64(p)]
+			head = head + skip + uint64(p) + 1
+		} else {
+			for i := head + skip + 8; i < uint64(len(data)); i += 8 {
+				u := *(*uint64)(unsafe.Pointer(&data[i]))
+				// Look for the first semicolon.
+				if p := SemiColonPosition(u); p >= 0 {
+					// A semicolon was found, collect all bytes before it and
+					// advance head.
+					city = data[head : i+uint64(p)]
+					head = i + uint64(p) + 1
+					break
+				}
 			}
 		}
 		if city == nil {
 			break
 		}
-		shortKey := TruncateKey(firstBytes, len(city))
+		shortKey := MakeShortKey(firstBytes, len(city))
 
-		u = *(*uint64)(unsafe.Pointer(&data[head]))
+		u := *(*uint64)(unsafe.Pointer(&data[head]))
 		temp, adv := ParseTemp(u)
-		head += adv
 		sum := m.Lookup(shortKey, city)
 		sum.Add(temp)
+
+		// Advance head.
+		head += adv
 
 		if head > scanPast {
 			break
@@ -270,17 +270,6 @@ func SemiColonPosition(u uint64) int {
 	return z >> 3
 }
 
-// TruncateKey returns the given uint64 key truncated length p. All remaining
-// bytes will be zeroed.
-func TruncateKey(u uint64, p int) uint64 {
-	if p >= 8 {
-		return u
-	}
-	var m uint64
-	m = 1<<(p<<3) - 1
-	return u & m
-}
-
 const (
 	shift1 = 8 * 1
 	shift2 = 8 * 2
@@ -309,7 +298,6 @@ func ParseTemp(u uint64) (_ Temp, advance uint64) {
 	//
 	// We use the limited locations of semicolons and minus characters to avoid
 	// conditional expressions and loops.
-	// i := *(*uint64)(unsafe.Pointer(&b[0]))
 	switch {
 	case (u & charMask1) == dot1:
 		// Case: "0.0".
@@ -344,8 +332,7 @@ func ParseTemp(u uint64) (_ Temp, advance uint64) {
 		// Add the tens digit.
 		temp += tens
 
-		// Negate the value if we found a minus character in len-4 or len-5
-		// position.
+		// Negate the value if we found a minus character.
 		//
 		// See "conditionally negate a value without branching", from "Bit
 		// Twiddling Hacks",
@@ -368,23 +355,40 @@ func ParseTemp(u uint64) (_ Temp, advance uint64) {
 }
 
 const (
-	// ASCII characters are all less than 128. Multi-byte characters, which
-	// start with bytes greater than 128 are rare, so we'll group them in with
-	// other characters by ignoring the most significant bit. Our table can then
-	// be 128x128x128.
-	tableDimension = 256
-	lookupMask     = 1<<24 - 1
+	// tableSize is the size of the table in a SummaryMap.
+	tableSize = 1 << 25
+
+	// offset64  and prime64 are taken from fnv.go
+	offset64 = 14695981039346656037
+	prime64  = 1099511628211
 )
 
-// index returns the index associated with the given shortKey.
-func index(shortKey uint64) uint64 {
-	return shortKey & lookupMask
+type ShortKey uint64
+
+// MakeShortKey returns the given uint64 key truncated length p. All remaining
+// bytes will be zeroed.
+func MakeShortKey(u uint64, p int) ShortKey {
+	if p >= 8 {
+		return ShortKey(u)
+	}
+	var m uint64
+	m = 1<<(p<<3) - 1
+	return ShortKey(u & m)
+}
+
+func (s ShortKey) TableIndex() uint64 {
+	// Compute a simple hash based on FNV.
+	var h uint64
+	h = offset64
+	h ^= uint64(s)
+	h *= prime64
+	// Compute the modulus of the hash with the table size.
+	return h & (tableSize - 1)
 }
 
 // SummaryMap is a map from a 3-byte key to a Summary linked list.
 type SummaryMap struct {
-	// table [tableDimension][tableDimension][tableDimension]*Summary
-	table [tableDimension * tableDimension * tableDimension]*Summary
+	table [tableSize]*Summary
 	keys  []string
 }
 
@@ -395,10 +399,10 @@ func (m *SummaryMap) Keys() []string {
 
 // LookupExisting returns the Summary in the map associated with the key. If
 // there is no summary matching the key, it returns nil.
-func (m *SummaryMap) LookupExisting(shortKey uint64, key string) *Summary {
-	s := m.table[index(shortKey)]
+func (m *SummaryMap) LookupExisting(sk ShortKey, key string) *Summary {
+	s := m.table[sk.TableIndex()]
 	for s != nil {
-		if shortKey == s.shortKey && (len(key) <= 8 || key == s.key) {
+		if sk == s.shortKey && (len(key) <= 8 || key == s.key) {
 			return s
 		}
 		s = s.next
@@ -411,15 +415,15 @@ func (m *SummaryMap) LookupExisting(shortKey uint64, key string) *Summary {
 // exist, a new one is added to the map and returned.
 //
 // The given key must be non-empty.
-func (m *SummaryMap) Lookup(shortKey uint64, key []byte) *Summary {
-	idx := index(shortKey)
+func (m *SummaryMap) Lookup(sk ShortKey, key []byte) *Summary {
+	idx := sk.TableIndex()
 	s := m.table[idx]
 	last := s
 	for s != nil {
 		// The Go compiler does not allocate in this special case of the string
 		// cast. See:
 		// https://github.com/golang/go/blob/e9b3ff15/src/bytes/bytes.go#L19
-		if shortKey == s.shortKey && (len(key) <= 8 || string(key) == s.key) {
+		if sk == s.shortKey && (len(key) <= 8 || string(key) == s.key) {
 			return s
 		}
 		last = s
@@ -430,7 +434,7 @@ func (m *SummaryMap) Lookup(shortKey uint64, key []byte) *Summary {
 	// summary to the map.
 	s = &Summary{
 		key:      string(key),
-		shortKey: shortKey,
+		shortKey: sk,
 		min:      math.MaxInt16,
 		max:      math.MinInt16,
 	}
@@ -463,7 +467,7 @@ func (t TempSum) AsFloat() float64 {
 // Summary summarizes all temperature recordings for a given key.
 type Summary struct {
 	key      string
-	shortKey uint64
+	shortKey ShortKey
 	next     *Summary
 	sum      TempSum
 	count    uint32
@@ -590,8 +594,8 @@ func TestShortKey() {
 	}
 	for _, tc := range testCases {
 		u := *(*uint64)(unsafe.Pointer(&tc.input[0]))
-		r := TruncateKey(u, tc.p)
-		e := *(*uint64)(unsafe.Pointer(&tc.expected[0]))
+		r := MakeShortKey(u, tc.p)
+		e := *(*ShortKey)(unsafe.Pointer(&tc.expected[0]))
 		if r != e {
 			panic(fmt.Sprintf("%q: expected %d, got %d", tc.input, tc.expected, r))
 		}
