@@ -63,8 +63,8 @@ will be averaged for a final result.
 | Rank | Submission                                                     | Time (seconds) |
 |-----:|----------------------------------------------------------------|---------------:|
 |    1 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/18) |          1.689 |
-|    2 | [pavel](https://github.com/dhartunian/1brcgo/pull/15)          |          1.771 |
-|    2 | [jason](https://github.com/dhartunian/1brcgo/pull/19)          |          1.777 |
+|    2 | [pavel](https://github.com/dhartunian/1brcgo/pull/25)          |          1.714 |
+|    3 | [jason](https://github.com/dhartunian/1brcgo/pull/19)          |          1.777 |
 |    4 | [radu](https://github.com/dhartunian/1brcgo/pull/20)           |          2.165 |
 |    5 | [mgartner](https://github.com/dhartunian/1brcgo/pull/7)        |          2.280 |
 |    6 | [petermattis](https://github.com/dhartunian/1brcgo/pull/5)     |          3.147 |
