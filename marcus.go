@@ -36,6 +36,7 @@ func main() {
 		// Run tests.
 		TestParseTemp()
 		TestSemiColonPosition()
+		TestShortKey()
 	}
 
 	if profile {
@@ -167,9 +168,12 @@ func Run() {
 			min: math.MaxInt16,
 			max: math.MinInt16,
 		}
+		// Build a shortKey for the city to aid the lookups.
+		u := *(*uint64)(unsafe.Pointer(unsafe.StringData(city)))
+		shortKey := TruncateKey(u, len(city))
 		// Merge all summaries for this city together.
 		for i := range maps {
-			if sub := maps[i].LookupExisting(city); sub != nil {
+			if sub := maps[i].LookupExisting(shortKey, city); sub != nil {
 				s.Merge(sub)
 			}
 		}
@@ -203,17 +207,24 @@ func Scan(m *SummaryMap, data []byte, start, end uint64, firstScanner, lastScann
 		scanPast -= 2
 	}
 	for {
-		var city []byte
 		if head < 0 {
 			return
 		}
 
-		i := head
-		for ; i < uint64(len(data)); i += 8 {
-			u := *(*uint64)(unsafe.Pointer(&data[i]))
+		var city []byte
+		var firstBytes uint64
+		var u uint64
+		for i := head; i < uint64(len(data)); i += 8 {
+			u = *(*uint64)(unsafe.Pointer(&data[i]))
+			if i == head {
+				firstBytes = u
+			}
+			// Look for the first semicolon.
 			p := SemiColonPosition(u)
 			if p >= 0 {
+				// A semicolon was found, collect all bytes before it.
 				city = data[head : i+uint64(p)]
+				// Advance head.
 				head = i + uint64(p) + 1
 				break
 			}
@@ -221,10 +232,12 @@ func Scan(m *SummaryMap, data []byte, start, end uint64, firstScanner, lastScann
 		if city == nil {
 			break
 		}
+		shortKey := TruncateKey(firstBytes, len(city))
 
-		temp, adv := ParseTemp(data[head:])
+		u = *(*uint64)(unsafe.Pointer(&data[head]))
+		temp, adv := ParseTemp(u)
 		head += adv
-		sum := m.Lookup(city)
+		sum := m.Lookup(shortKey, city)
 		sum.Add(temp)
 
 		if head > scanPast {
@@ -234,25 +247,12 @@ func Scan(m *SummaryMap, data []byte, start, end uint64, firstScanner, lastScann
 }
 
 const (
-	shift1 = 8 * 1
-	shift2 = 8 * 2
-	shift3 = 8 * 3
-	shift4 = 8 * 4
-
-	charMask0 = int64(255)
-	charMask1 = int64(255) << shift1
-	charMask2 = int64(255) << shift2
-	charMask3 = int64(255) << shift3
-	charMask4 = int64(255) << shift4
-
-	dot1 = int64('.') << 8
-	dot2 = int64('.') << 16
-
 	semiColonTest = 0x3B3B3B3B3B3B3B3B
 )
 
 // SemiColonPosition returns the position of the byte within u that represents a
-// semi-colon character in ASCII. If such a byte is not present, it returns -1.
+// semicolon character in ASCII. If a semicolon byte is not present, it returns
+// -1.
 func SemiColonPosition(u uint64) int {
 	// See "determine if a word has a byte equal to n", from "Bit Twiddling
 	// Hacks",
@@ -262,15 +262,42 @@ func SemiColonPosition(u uint64) int {
 	if b == 0 {
 		return -1
 	}
-	// The first bit of each byte in b that matches a semi-colon character will
+	// The first bit of each byte in b that matches a semicolon character will
 	// be set. So we can count the trailing zeros (on a little-endian machine)
-	// to find the position of the first semi-colon.
+	// to find the position of the first semicolon.
 	z := bits.TrailingZeros64(b)
 	// Divide by 8.
 	return z >> 3
 }
 
-func ParseTemp(b []byte) (_ Temp, advance uint64) {
+// TruncateKey returns the given uint64 key truncated length p. All remaining
+// bytes will be zeroed.
+func TruncateKey(u uint64, p int) uint64 {
+	if p >= 8 {
+		return u
+	}
+	var m uint64
+	m = 1<<(p<<3) - 1
+	return u & m
+}
+
+const (
+	shift1 = 8 * 1
+	shift2 = 8 * 2
+	shift3 = 8 * 3
+	shift4 = 8 * 4
+
+	charMask0 = uint64(255)
+	charMask1 = uint64(255) << shift1
+	charMask2 = uint64(255) << shift2
+	charMask3 = uint64(255) << shift3
+	charMask4 = uint64(255) << shift4
+
+	dot1 = uint64('.') << 8
+	dot2 = uint64('.') << 16
+)
+
+func ParseTemp(u uint64) (_ Temp, advance uint64) {
 	// Gather the key and fetch the corresponding record. We can do this without
 	// scanning the line because there are only four possible sequences for
 	// the temperature. The valid formats are:
@@ -282,28 +309,28 @@ func ParseTemp(b []byte) (_ Temp, advance uint64) {
 	//
 	// We use the limited locations of semicolons and minus characters to avoid
 	// conditional expressions and loops.
-	i := *(*int64)(unsafe.Pointer(&b[0]))
+	// i := *(*uint64)(unsafe.Pointer(&b[0]))
 	switch {
-	case (i & charMask1) == dot1:
+	case (u & charMask1) == dot1:
 		// Case: "0.0".
-		ones := (i&charMask0 - '0') * 10
-		tenths := i&charMask2>>shift2 - '0'
+		ones := (u&charMask0 - '0') * 10
+		tenths := u&charMask2>>shift2 - '0'
 		// Advance past the newline, which is the fourth character.
 		return Temp(ones + tenths), 4
 
-	case (i & charMask2) == dot2:
+	case (u & charMask2) == dot2:
 		// Case: "00.0" and "-0.0".
-		v0 := i & charMask0
+		v0 := u & charMask0
 		tens := (v0 - '0') * 100
-		ones := (i&charMask1>>shift1 - '0') * 10
-		tenths := i&charMask3>>shift3 - '0'
+		ones := (u&charMask1>>shift1 - '0') * 10
+		tenths := u&charMask3>>shift3 - '0'
 
 		// neg is 1 if the first character is the minus charater, and 0
 		// otherwise.
 		//
 		// NOTE: The Go compiler eliminates jumps when using this form of
 		// conditional.
-		var neg int64
+		var neg uint64
 		if v0 == '-' {
 			neg = 1
 		}
@@ -329,11 +356,11 @@ func ParseTemp(b []byte) (_ Temp, advance uint64) {
 		return Temp(temp), 5
 	default:
 		// Case: "-00.0".
-		tens := (i&charMask1>>shift1 - '0') * 100
-		ones := (i&charMask2>>shift2 - '0') * 10
-		tenths := i&charMask4>>shift4 - '0'
+		tens := (u&charMask1>>shift1 - '0') * 100
+		ones := (u&charMask2>>shift2 - '0') * 10
+		tenths := u&charMask4>>shift4 - '0'
 
-		t := tens + ones + tenths
+		t := int16(tens + ones + tenths)
 		t *= -1
 		// Advance past the newline, which is the sixth character.
 		return Temp(t), 6
@@ -345,12 +372,19 @@ const (
 	// start with bytes greater than 128 are rare, so we'll group them in with
 	// other characters by ignoring the most significant bit. Our table can then
 	// be 128x128x128.
-	tableDimension = 128
+	tableDimension = 256
+	lookupMask     = 1<<24 - 1
 )
+
+// index returns the index associated with the given shortKey.
+func index(shortKey uint64) uint64 {
+	return shortKey & lookupMask
+}
 
 // SummaryMap is a map from a 3-byte key to a Summary linked list.
 type SummaryMap struct {
-	table [tableDimension][tableDimension][tableDimension]*Summary
+	// table [tableDimension][tableDimension][tableDimension]*Summary
+	table [tableDimension * tableDimension * tableDimension]*Summary
 	keys  []string
 }
 
@@ -361,26 +395,14 @@ func (m *SummaryMap) Keys() []string {
 
 // LookupExisting returns the Summary in the map associated with the key. If
 // there is no summary matching the key, it returns nil.
-func (m *SummaryMap) LookupExisting(key string) *Summary {
-	var b0, b1, b2 byte
-	b0 = key[0] & 127
-	// Use the NULL byte for the second and third characters in the lookup table
-	// if the key is less than 3 bytes long.
-	if len(key) > 1 {
-		b1 = key[1] & 127
-	}
-	if len(key) > 2 {
-		b2 = key[2] & 127
-	}
-
-	s := m.table[b0][b1][b2]
+func (m *SummaryMap) LookupExisting(shortKey uint64, key string) *Summary {
+	s := m.table[index(shortKey)]
 	for s != nil {
-		if key == s.key {
+		if shortKey == s.shortKey && (len(key) <= 8 || key == s.key) {
 			return s
 		}
 		s = s.next
 	}
-
 	// The summary was not found.
 	return nil
 }
@@ -389,24 +411,15 @@ func (m *SummaryMap) LookupExisting(key string) *Summary {
 // exist, a new one is added to the map and returned.
 //
 // The given key must be non-empty.
-func (m *SummaryMap) Lookup(key []byte) *Summary {
-	var b0, b1, b2 byte
-	b0 = key[0] & 127
-	// Use the NULL byte for the second and third characters in the lookup table
-	// if the key is less than 3 bytes long.
-	if len(key) > 1 {
-		b1 = key[1] & 127
-	}
-	if len(key) > 2 {
-		b2 = key[2] & 127
-	}
-
-	s := m.table[b0][b1][b2]
+func (m *SummaryMap) Lookup(shortKey uint64, key []byte) *Summary {
+	idx := index(shortKey)
+	s := m.table[idx]
 	last := s
 	for s != nil {
-		// The Go compiler does not allocate in this special case. See
+		// The Go compiler does not allocate in this special case of the string
+		// cast. See:
 		// https://github.com/golang/go/blob/e9b3ff15/src/bytes/bytes.go#L19
-		if string(key) == s.key {
+		if shortKey == s.shortKey && (len(key) <= 8 || string(key) == s.key) {
 			return s
 		}
 		last = s
@@ -416,14 +429,15 @@ func (m *SummaryMap) Lookup(key []byte) *Summary {
 	// The summary was not found. Allocate a string for the key, and add a new
 	// summary to the map.
 	s = &Summary{
-		key: string(key),
-		min: math.MaxInt16,
-		max: math.MinInt16,
+		key:      string(key),
+		shortKey: shortKey,
+		min:      math.MaxInt16,
+		max:      math.MinInt16,
 	}
 	if last != nil {
 		last.next = s
 	} else {
-		m.table[b0][b1][b2] = s
+		m.table[idx] = s
 	}
 	m.keys = append(m.keys, s.key)
 	return s
@@ -448,12 +462,13 @@ func (t TempSum) AsFloat() float64 {
 
 // Summary summarizes all temperature recordings for a given key.
 type Summary struct {
-	key   string
-	next  *Summary
-	sum   TempSum
-	count uint32
-	min   Temp
-	max   Temp
+	key      string
+	shortKey uint64
+	next     *Summary
+	sum      TempSum
+	count    uint32
+	min      Temp
+	max      Temp
 }
 
 // Add adds a new temperature to the summary.
@@ -516,7 +531,8 @@ func TestParseTemp() {
 		{[]byte("-98.9"), -98.9, 6},
 	}
 	for _, tc := range testCases {
-		temp, adv := ParseTemp(tc.input)
+		u := *(*uint64)(unsafe.Pointer(&tc.input[0]))
+		temp, adv := ParseTemp(u)
 		if temp.AsFloat() != tc.expectedTemp {
 			panic(fmt.Sprintf("expected temp %d, got %d", tc.expectedTemp, temp.AsFloat()))
 		}
@@ -550,6 +566,33 @@ func TestSemiColonPosition() {
 		i := *(*uint64)(unsafe.Pointer(&tc.input[0]))
 		r := SemiColonPosition(i)
 		if r != tc.expected {
+			panic(fmt.Sprintf("%q: expected %d, got %d", tc.input, tc.expected, r))
+		}
+	}
+}
+
+func TestShortKey() {
+	type testCase struct {
+		input    []byte
+		p        int
+		expected []byte
+	}
+	testCases := []testCase{
+		{[]byte("a;cdefgh"), 1, []byte("a")},
+		{[]byte("ab;defgh"), 2, []byte("ab")},
+		{[]byte("abc;efgh"), 3, []byte("abc")},
+		{[]byte("abcd;fgh"), 4, []byte("abcd")},
+		{[]byte("abcde;gh"), 5, []byte("abcde")},
+		{[]byte("abcdef;h"), 6, []byte("abcdef")},
+		{[]byte("abcdefg;"), 7, []byte("abcdefg")},
+		{[]byte("abcdefgh"), 8, []byte("abcdefgh")},
+		{[]byte("abcdefghi"), 9, []byte("abcdefgh")},
+	}
+	for _, tc := range testCases {
+		u := *(*uint64)(unsafe.Pointer(&tc.input[0]))
+		r := TruncateKey(u, tc.p)
+		e := *(*uint64)(unsafe.Pointer(&tc.expected[0]))
+		if r != e {
 			panic(fmt.Sprintf("%q: expected %d, got %d", tc.input, tc.expected, r))
 		}
 	}
