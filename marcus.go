@@ -206,19 +206,19 @@ func Scan(m *SummaryMap, data []byte, start, end uint64, firstScanner, lastScann
 		// We can't scan past the end of the file.
 		scanPast -= 2
 	}
-	var skip uint64
 	for {
 		var city []byte
-		firstBytes := *(*uint64)(unsafe.Pointer(&data[head+skip]))
+		firstBytes := *(*uint64)(unsafe.Pointer(&data[head]))
 		// Look for a semicolon in the first 8 bytes.
-		if p := SemiColonPosition(firstBytes); p >= 0 {
-			city = data[head : head+skip+uint64(p)]
-			head = head + skip + uint64(p) + 1
+		var p int
+		if p = SemiColonPosition(firstBytes); p >= 0 {
+			city = data[head : head+uint64(p)]
+			head = head + uint64(p) + 1
 		} else {
-			for i := head + skip + 8; i < uint64(len(data)); i += 8 {
+			for i := head + 8; i < uint64(len(data)); i += 8 {
 				u := *(*uint64)(unsafe.Pointer(&data[i]))
 				// Look for the first semicolon.
-				if p := SemiColonPosition(u); p >= 0 {
+				if p = SemiColonPosition(u); p >= 0 {
 					// A semicolon was found, collect all bytes before it and
 					// advance head.
 					city = data[head : i+uint64(p)]
@@ -386,7 +386,7 @@ func (s ShortKey) TableIndex() uint64 {
 	return h & (tableSize - 1)
 }
 
-// SummaryMap is a map from a 3-byte key to a Summary linked list.
+// SummaryMap is a map from a ShortKey to a Summary linked list.
 type SummaryMap struct {
 	table [tableSize]*Summary
 	keys  []string
