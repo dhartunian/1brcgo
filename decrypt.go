@@ -17,10 +17,6 @@ func main() {
 
 	// Decrypt the file.
 	execCmd("openssl", "aes-256-cbc", "-d", "-a", "-pbkdf2", "-in", encFileName, "-out", fileName, "-kfile", "key.sym")
-	defer execCmd("rm", fileName)
-
-	// Compile the file into a binary.
-	execCmd("go", "build", fileName)
 }
 
 func execCmd(name string, args ...string) {
