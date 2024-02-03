@@ -60,13 +60,16 @@ will be averaged for a final result.
 
 # Leaderboard
 
-| Rank | Submission                                                     | Time (seconds) |
-|-----:|----------------------------------------------------------------|---------------:|
-|    1 | [nvanbenschoten](https://github.com/dhartunian/1brcgo/pull/18) |          1.689 |
-|    2 | [pavel](https://github.com/dhartunian/1brcgo/pull/25)          |          1.714 |
-|    3 | [jason](https://github.com/dhartunian/1brcgo/pull/19)          |          1.777 |
-|    4 | [petermattis](peter.go)                                        |          1.857 |
-|    5 | [radu](https://github.com/dhartunian/1brcgo/pull/20)           |          2.165 |
-|    6 | [mgartner](marcus.go)                                          |          2.280 |
-|    7 | [arjunmahishi](https://github.com/dhartunian/1brcgo/pull/10)   |          3.467 |
-|    - | [baseline.go](baseline.go)                                     |         151.09 |
+| Rank | Submission                                                   | Time (seconds) |
+|-----:|--------------------------------------------------------------|---------------:|
+|    1 | [pavel](pavel.go)                                            |          1.108 |
+|    2 | [jason](https://github.com/dhartunian/1brcgo/pull/27)        |          1.625 |
+|    3 | [nvanbenschoten](nathan.go)                                  |          1.682 |
+|    4 | [stan](stan.go)                                              |          1.758 |
+|    5 | [petermattis](peter.go)                                      |          1.857 |
+|    6 | [radu](radu.go)                                              |          2.165 |
+|    7 | [mgartner](marcus.go)                                        |          2.280 |
+|    8 | [arjunmahishi](https://github.com/dhartunian/1brcgo/pull/32) |          2.700 |
+|    9 | [michae2](michael2.go)                                       |          2.785 |
+|    - | [baseline.go](baseline.go)                                   |         151.09 |
+
